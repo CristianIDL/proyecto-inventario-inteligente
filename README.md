@@ -2,37 +2,54 @@
 
 
 # Estructura del programa archivos
+# Estructura del Proyecto
+
+```text
 inventario_inteligente/
 │
-├── venv/
+├── venv/                     # Entorno virtual de Python
 │
-├── data/
-│   ├── raw/
-│   └── processed/
+├── data/                     # Datos utilizados por el sistema
+│   ├── raw/                  # Datos originales sin procesar
+│   └── processed/            # Datos limpios y transformados
 │
-├── exports/
+├── exports/                  # Reportes, predicciones y archivos exportados
 │
-├── models/
+├── models/                   # Modelos entrenados y artefactos serializados
 │
-├── src/
-│   ├── gui/
-│   │   ├── main_window.py
-│   │   └── widgets.py
+├── src/                      # Código fuente principal
 │   │
-│   ├── data_processing/
-│   │   ├── loader.py
-│   │   └── preprocessing.py
+│   ├── gui/                  # Interfaz gráfica de usuario
+│   │   ├── main_window.py    # Ventana principal de la aplicación
+│   │   └── widgets.py        # Componentes y controles personalizados
 │   │
-│   ├── forecasting/
-│   │   ├── prophet_model.py
-│   │   └── metrics.py
+│   ├── data_processing/      # Procesamiento y preparación de datos
+│   │   ├── loader.py         # Carga de archivos y datasets
+│   │   └── preprocessing.py  # Limpieza y transformación de datos
 │   │
-│   └── utils/
-│       └── file_manager.py
+│   ├── forecasting/          # Módulos de predicción
+│   │   ├── prophet_model.py  # Implementación del modelo Prophet
+│   │   └── metrics.py        # Métricas de evaluación
+│   │
+│   └── utils/                # Funciones auxiliares
+│       └── file_manager.py   # Gestión de archivos y directorios
 │
-├── main.py
-├── requirements.txt
-└── README.md
+├── main.py                   # Punto de entrada de la aplicación
+├── requirements.txt          # Dependencias del proyecto
+└── README.md                 # Documentación principal
+```
+
+## Descripción General
+
+**Inventario Inteligente** es una aplicación orientada al análisis y predicción de ventas mediante técnicas de series temporales. El sistema permite:
+
+* Cargar y procesar información histórica de ventas.
+* Limpiar y transformar datos para su análisis.
+* Generar pronósticos utilizando Prophet.
+* Evaluar el desempeño de los modelos predictivos.
+* Exportar resultados y reportes.
+* Interactuar con el sistema mediante una interfaz gráfica.
+
 
 # Flujo de programa prototipo v 1.0 
 
