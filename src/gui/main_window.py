@@ -5,6 +5,11 @@ from src.data_processing.loader import load_csv
 from src.data_processing.preprocessing import preprocess_data, get_product_list
 from src.forecasting.prophet_model import train_prophet
 
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+
 
 class MainWindow:
 
@@ -55,7 +60,7 @@ class MainWindow:
         self.product_combobox = ttk.Combobox(
             frame_product,
             textvariable=self.selected_product,
-            state="disabled",          # se habilita al cargar CSV
+            state="disabled",
             width=55,
         )
         self.product_combobox.pack(padx=10, pady=6)
@@ -128,13 +133,11 @@ class MainWindow:
             self.df_raw = load_csv(file)
             self.csv_path.set(file)
 
-            # Poblar el combobox con los productos del CSV
             productos = get_product_list(self.df_raw)
             self.product_combobox["values"] = productos
             self.product_combobox["state"] = "readonly"
-            self.selected_product.set(productos[0])   # opción global por defecto
+            self.selected_product.set(productos[0])
 
-            # Resetear estado anterior
             self.df_processed = None
             self.model = None
             self.forecast = None
@@ -177,13 +180,11 @@ class MainWindow:
         try:
             product = self.selected_product.get()
 
-            # Feedback visual mientras entrena
             self.root.config(cursor="wait")
             self.root.update()
 
             self.model, metrics = train_prophet(self.df_processed, product_name=product)
 
-            # Actualizar etiquetas de métricas
             self.mae_label.config(text=f"MAE: {metrics['MAE']}")
             self.rmse_label.config(text=f"RMSE: {metrics['RMSE']}")
             self.product_label.config(text=f"Producto: {metrics['producto']}")
@@ -201,14 +202,209 @@ class MainWindow:
         finally:
             self.root.config(cursor="")
 
+    # ------------------------------------------------------------------ #
+    #  PREDECIR
+    # ------------------------------------------------------------------ #
+
     def predict(self):
-        print("Generando predicción...")
+        """Genera la predicción con Prophet y la guarda en self.forecast."""
+
+        # ── Validaciones ────────────────────────────────────────────────────
+        if self.df_raw is None:
+            messagebox.showwarning("Sin datos", "Primero carga un archivo CSV.")
+            return
+
+        if self.model is None:
+            messagebox.showwarning(
+                "Sin modelo",
+                "Primero entrena el modelo con el botón 'Entrenar'."
+            )
+            return
+
+        try:
+            days = int(self.days.get())
+            if days <= 0:
+                raise ValueError
+        except (ValueError, tk.TclError):
+            messagebox.showerror(
+                "Días inválidos",
+                "Ingresa un número entero positivo en 'Días a predecir'."
+            )
+            return
+
+        # ── Generar predicción ───────────────────────────────────────────────
+        try:
+            self.root.config(cursor="wait")
+            self.root.update()
+
+            future = self.model.make_future_dataframe(periods=days, freq="D")
+            self.forecast = self.model.predict(future)
+
+        except Exception as e:
+            messagebox.showerror("Error en predicción", str(e))
+            return
+        finally:
+            self.root.config(cursor="")
+
+        # ── Notificar al usuario ─────────────────────────────────────────────
+        product = self.selected_product.get()
+        messagebox.showinfo(
+            "Predicción lista",
+            f"Producto: {product}\n"
+            f"Días predichos: {days}\n\n"
+            "Usa 'Mostrar Gráfica' o 'Exportar CSV' para ver los resultados."
+        )
+
+    # ------------------------------------------------------------------ #
+    #  MOSTRAR GRÁFICA
+    # ------------------------------------------------------------------ #
 
     def show_graph(self):
-        print("Mostrando gráfica...")
+        """Abre una ventana con la gráfica de predicción Prophet."""
+
+        if self.forecast is None:
+            messagebox.showwarning(
+                "Sin predicción",
+                "Primero genera una predicción con el botón 'Predecir'."
+            )
+            return
+
+        days = int(self.days.get())
+        product = self.selected_product.get()
+
+        # ── Crear ventana ────────────────────────────────────────────────────
+        win = tk.Toplevel(self.root)
+        win.title(f"Gráfica — {product}")
+        win.geometry("960x560")
+        win.resizable(True, True)
+
+        # ── Construir figura ─────────────────────────────────────────────────
+        fig, ax = plt.subplots(figsize=(10, 4.8))
+        fig.patch.set_facecolor("#F7F9FC")
+        ax.set_facecolor("#F7F9FC")
+
+        # Serie histórica
+        if self.df_processed is not None:
+            ax.plot(
+                self.df_processed["ds"],
+                self.df_processed["y"],
+                color="#4A90D9",
+                linewidth=1.8,
+                label="Histórico",
+            )
+
+        # Franja de incertidumbre
+        ax.fill_between(
+            self.forecast["ds"],
+            self.forecast["yhat_lower"],
+            self.forecast["yhat_upper"],
+            alpha=0.20,
+            color="#F5A623",
+            label="Intervalo de confianza",
+        )
+
+        # Línea de predicción
+        ax.plot(
+            self.forecast["ds"],
+            self.forecast["yhat"],
+            color="#E8572A",
+            linewidth=2,
+            linestyle="--",
+            label="Predicción",
+        )
+
+        # Línea vertical: corte histórico / futuro
+        if len(self.forecast) > days:
+            cutoff = self.forecast["ds"].iloc[-(days + 1)]
+            ax.axvline(cutoff, color="#999", linewidth=1, linestyle=":")
+            ymax = ax.get_ylim()[1]
+            ax.text(cutoff, ymax * 0.97, "  Hoy", fontsize=8, color="#666", va="top")
+
+        ax.set_title(
+            f"Predicción de demanda — {product}",
+            fontsize=13, fontweight="bold", pad=12,
+        )
+        ax.set_xlabel("Fecha", fontsize=10)
+        ax.set_ylabel("Ventas", fontsize=10)
+        ax.legend(fontsize=9)
+        ax.tick_params(axis="x", rotation=30)
+        fig.tight_layout()
+
+        # ── Embeber en Tkinter ───────────────────────────────────────────────
+        canvas = FigureCanvasTkAgg(fig, master=win)
+        canvas.draw()
+
+        toolbar = NavigationToolbar2Tk(canvas, win)
+        toolbar.update()
+
+        toolbar.pack(side="bottom", fill="x")
+        canvas.get_tk_widget().pack(fill="both", expand=True)
+
+        # Liberar figura al cerrar la ventana
+        win.protocol("WM_DELETE_WINDOW", lambda: (plt.close(fig), win.destroy()))
+
+    # ------------------------------------------------------------------ #
+    #  EXPORTAR CSV
+    # ------------------------------------------------------------------ #
 
     def export_csv(self):
-        print("Exportando resultados...")
+        """Exporta la predicción a CSV, dejando que el usuario elija la ruta."""
+
+        if self.forecast is None:
+            messagebox.showwarning(
+                "Sin predicción",
+                "Primero genera una predicción con el botón 'Predecir'."
+            )
+            return
+
+        days = int(self.days.get())
+        product = self.selected_product.get()
+
+        # Nombre de archivo sugerido
+        product_slug = (
+            product.replace("— ", "").replace(" —", "")
+            .replace(" ", "_").lower()
+        )
+        default_name = f"prediccion_{product_slug}_{days}d.csv"
+
+        # Diálogo para elegir dónde guardar
+        save_path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV Files", "*.csv")],
+            initialdir=os.path.abspath("exports"),
+            initialfile=default_name,
+            title="Guardar predicción como…",
+        )
+        if not save_path:
+            return  # El usuario canceló
+
+        # Preparar DataFrame de salida (solo días futuros)
+        cols = ["ds", "yhat", "yhat_lower", "yhat_upper"]
+        df_out = (
+            self.forecast[cols]
+            .tail(days)
+            .copy()
+            .reset_index(drop=True)
+        )
+        df_out.rename(columns={
+            "ds":         "Fecha",
+            "yhat":       "Predicción",
+            "yhat_lower": "Límite inferior",
+            "yhat_upper": "Límite superior",
+        }, inplace=True)
+        df_out["Fecha"] = df_out["Fecha"].dt.strftime("%Y-%m-%d")
+
+        try:
+            os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+            df_out.to_csv(save_path, index=False, encoding="utf-8-sig")
+            messagebox.showinfo(
+                "Exportación exitosa",
+                f"Archivo guardado en:\n{save_path}"
+            )
+        except Exception as e:
+            messagebox.showerror("Error al exportar", str(e))
+
+    # ------------------------------------------------------------------ #
 
     def _reset_metrics(self):
         self.mae_label.config(text="MAE: ---")
