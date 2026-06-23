@@ -24,6 +24,7 @@ class MainWindow:
 
         self.df_raw = None
         self.df_processed = None
+        self.df_trained = None   # snapshot del df usado en el entrenamiento
         self.model = None
         self.forecast = None
 
@@ -125,7 +126,6 @@ class MainWindow:
 
     # ------------------------------------------------------------------ #
 
-
     def load_csv(self):
         file = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv")])
         if not file:
@@ -140,11 +140,11 @@ class MainWindow:
             self.selected_product.set(items[0])
 
             self.df_processed = None
+            self.df_trained = None
             self.model = None
             self.forecast = None
             self._reset_metrics()
 
-            # Contar solo productos reales (excluir global y headers de categoría)
             n_productos = sum(
                 1 for i in items
                 if i != "— Global (todos los productos) —"
@@ -173,7 +173,12 @@ class MainWindow:
                 product_name=product,
             )
 
-            # Etiqueta legible para el mensaje
+            # Resetear modelo y forecast ya que los datos cambiaron
+            self.df_trained = None
+            self.model = None
+            self.forecast = None
+            self._reset_metrics()
+
             if product.startswith(CATEGORY_HEADER_PREFIX):
                 label = f"Categoría: {product.replace(CATEGORY_HEADER_PREFIX, '').strip()}"
             elif product == "— Global (todos los productos) —":
@@ -202,6 +207,10 @@ class MainWindow:
 
             self.model, metrics = train_prophet(self.df_processed, product_name=product)
 
+            # Snapshot exacto de los datos usados en este entrenamiento
+            self.df_trained = self.df_processed.copy()
+            self.forecast = None  # invalidar predicción anterior
+
             self.mae_label.config(text=f"MAE: {metrics['MAE']}")
             self.rmse_label.config(text=f"RMSE: {metrics['RMSE']}")
             self.product_label.config(text=f"Producto: {metrics['producto']}")
@@ -219,12 +228,20 @@ class MainWindow:
         finally:
             self.root.config(cursor="")
 
+    # ------------------------------------------------------------------ #
+    #  PREDECIR
+    # ------------------------------------------------------------------ #
+
     def predict(self):
         if self.df_raw is None:
             messagebox.showwarning("Sin datos", "Primero carga un archivo CSV.")
             return
+
         if self.model is None:
-            messagebox.showwarning("Sin modelo", "Primero entrena el modelo con el botón 'Entrenar'.")
+            messagebox.showwarning(
+                "Sin modelo",
+                "Primero entrena el modelo con el botón 'Entrenar'."
+            )
             return
 
         try:
@@ -232,7 +249,10 @@ class MainWindow:
             if days <= 0:
                 raise ValueError
         except (ValueError, tk.TclError):
-            messagebox.showerror("Días inválidos", "Ingresa un número entero positivo en 'Días a predecir'.")
+            messagebox.showerror(
+                "Días inválidos",
+                "Ingresa un número entero positivo en 'Días a predecir'."
+            )
             return
 
         try:
@@ -256,9 +276,23 @@ class MainWindow:
             "Usa 'Mostrar Gráfica' o 'Exportar CSV' para ver los resultados."
         )
 
+    # ------------------------------------------------------------------ #
+    #  MOSTRAR GRÁFICA
+    # ------------------------------------------------------------------ #
+
     def show_graph(self):
         if self.forecast is None:
-            messagebox.showwarning("Sin predicción", "Primero genera una predicción con el botón 'Predecir'.")
+            messagebox.showwarning(
+                "Sin predicción",
+                "Primero genera una predicción con el botón 'Predecir'."
+            )
+            return
+
+        if self.df_trained is None:
+            messagebox.showwarning(
+                "Sin entrenamiento",
+                "No hay datos de entrenamiento asociados a esta predicción."
+            )
             return
 
         days = int(self.days.get())
@@ -273,15 +307,16 @@ class MainWindow:
         fig.patch.set_facecolor("#F7F9FC")
         ax.set_facecolor("#F7F9FC")
 
-        if self.df_processed is not None:
-            ax.plot(
-                self.df_processed["ds"],
-                self.df_processed["y"],
-                color="#4A90D9",
-                linewidth=1.8,
-                label="Histórico",
-            )
+        # Histórico: solo los datos del entrenamiento puntual
+        ax.plot(
+            self.df_trained["ds"],
+            self.df_trained["y"],
+            color="#4A90D9",
+            linewidth=1.8,
+            label="Histórico",
+        )
 
+        # Franja de incertidumbre
         ax.fill_between(
             self.forecast["ds"],
             self.forecast["yhat_lower"],
@@ -291,6 +326,7 @@ class MainWindow:
             label="Intervalo de confianza",
         )
 
+        # Línea de predicción
         ax.plot(
             self.forecast["ds"],
             self.forecast["yhat"],
@@ -300,13 +336,17 @@ class MainWindow:
             label="Predicción",
         )
 
+        # Línea vertical corte histórico / futuro
         if len(self.forecast) > days:
             cutoff = self.forecast["ds"].iloc[-(days + 1)]
             ax.axvline(cutoff, color="#999", linewidth=1, linestyle=":")
             ymax = ax.get_ylim()[1]
             ax.text(cutoff, ymax * 0.97, "  Hoy", fontsize=8, color="#666", va="top")
 
-        ax.set_title(f"Predicción de demanda — {product}", fontsize=13, fontweight="bold", pad=12)
+        ax.set_title(
+            f"Predicción de demanda — {product}",
+            fontsize=13, fontweight="bold", pad=12,
+        )
         ax.set_xlabel("Fecha", fontsize=10)
         ax.set_ylabel("Ventas", fontsize=10)
         ax.legend(fontsize=9)
@@ -324,9 +364,16 @@ class MainWindow:
 
         win.protocol("WM_DELETE_WINDOW", lambda: (plt.close(fig), win.destroy()))
 
+    # ------------------------------------------------------------------ #
+    #  EXPORTAR CSV
+    # ------------------------------------------------------------------ #
+
     def export_csv(self):
         if self.forecast is None:
-            messagebox.showwarning("Sin predicción", "Primero genera una predicción con el botón 'Predecir'.")
+            messagebox.showwarning(
+                "Sin predicción",
+                "Primero genera una predicción con el botón 'Predecir'."
+            )
             return
 
         days = int(self.days.get())
@@ -350,10 +397,15 @@ class MainWindow:
             return
 
         cols = ["ds", "yhat", "yhat_lower", "yhat_upper"]
-        df_out = self.forecast[cols].tail(days).copy().reset_index(drop=True)
+        df_out = (
+            self.forecast[cols]
+            .tail(days)
+            .copy()
+            .reset_index(drop=True)
+        )
         df_out.rename(columns={
-            "ds": "Fecha",
-            "yhat": "Predicción",
+            "ds":         "Fecha",
+            "yhat":       "Predicción",
             "yhat_lower": "Límite inferior",
             "yhat_upper": "Límite superior",
         }, inplace=True)
@@ -362,9 +414,14 @@ class MainWindow:
         try:
             os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
             df_out.to_csv(save_path, index=False, encoding="utf-8-sig")
-            messagebox.showinfo("Exportación exitosa", f"Archivo guardado en:\n{save_path}")
+            messagebox.showinfo(
+                "Exportación exitosa",
+                f"Archivo guardado en:\n{save_path}"
+            )
         except Exception as e:
             messagebox.showerror("Error al exportar", str(e))
+
+    # ------------------------------------------------------------------ #
 
     def _reset_metrics(self):
         self.mae_label.config(text="MAE: ---")
