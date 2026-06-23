@@ -67,8 +67,12 @@ Mostrar gráficas
     ↓
 Exportar CSV
 
+# Clonar o descargar proyecto
+```bash
+git clone https://github.com/CristianIDL/proyecto-inventario-inteligente
+```
 # Creacion de entorno de python para desarrollo 
-
+```bash
 py -m venv venv
 
 .\venv\Scripts\activate
@@ -77,6 +81,7 @@ pip install pandas prophet matplotlib scikit-learn tkinterdnd2
 
 pip freeze > requirements.txt
 
+```
 
 # Instalacioin de entorno de desarrollo
 ### 1. Ir a la carpeta del backend
